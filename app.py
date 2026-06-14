@@ -1,150 +1,312 @@
 import streamlit as st
-import requests
 import pandas as pd
-import yfinance as yf
+import finance_datareader as fdr
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import io
 
-st.set_page_config(page_title="투자경고 종목 자동 분석기", layout="wide")
+st.set_page_config(layout="wide", page_title="투자경고 전후 주가 흐름")
 
-st.title("🚨 투자경고 종목 주가 흐름 자동 분석기")
-st.caption("KIND 사이트에서 2026년 4월 이후 지정된 투자경고 종목을 자동으로 가져와 전후 주가 흐름을 보여줍니다.")
-
-# 전역 공통 헤더 설정 (브라우저인 척 위장)
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Referer': 'https://kind.krx.co.kr/investwarn/investattentwarnrisky.do?method=investattentwarnriskyMain'
-}
-
-# 1. KIND 사이트에서 투자경고 종목 데이터 크롤링 함수
-@st.cache_data(ttl=3600)  # 1시간 동안 캐싱
-def fetch_warn_stocks():
-    url = "https://kind.krx.co.kr/investwarn/investattentwarnrisky.do?method=investattentwarnriskySub"
-    
-    payload = {
-        'currentPageSize': '100',
-        'pageIndex': '1',
-        'orderMode': '0',
-        'orderStat': 'D',
-        'searchType': '1',  # 투자경고종목 기준
-        'fromDate': '2026-04-01',
-        'toDate': datetime.today().strftime('%Y-%m-%d')
-    }
-    
-    try:
-        response = requests.post(url, data=payload, headers=HEADERS)
-        response.raise_for_status() # 에러 발생 시 예외 처리
-        
-        # StringIO를 사용해 pandas의 경고 방지 및 lxml 파싱
-        dfs = pd.read_html(io.StringIO(response.text))
-        if dfs:
-            df = dfs[0]
-            df.columns = [str(col).strip() for col in df.columns]
-            df = df[['종목명', '지정일', '해제일(예정일)']]
-            return df
-    except Exception as e:
-        st.error(f"KIND 투자경고 데이터를 가져오는 중 오류가 발생했습니다. (서버 차단 가능성): {e}")
-        return pd.DataFrame()
-
-# 2. KRX 종목코드 마스터 데이터 가져오기 (차단 우회 버전)
+# 1. 한국거래소(KRX) 전체 종목 코드 마스터 다운로드
 @st.cache_data
-def get_krx_tickers():
-    url = 'http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13'
+def get_krx_stock_codes():
+    df_krx = fdr.StockListing('KRX')
+    return df_krx[['Code', 'Name']].rename(columns={'Code': '코드', 'Name': '종목명'})
+
+# 2. 질문해주신 투자경고 종목 데이터 전체 내장
+@st.cache_data
+def load_my_announcements():
+    raw_data = [
+        {"종목명": "라이콤", "지정일": "2026-06-12"},
+        {"종목명": "오션스바이오", "지정일": "2026-06-12"},
+        {"종목명": "가이아코퍼레이션", "지정일": "2026-06-11"},
+        {"종목명": "피델릭스", "지정일": "2026-06-11"},
+        {"종목명": "화신정공", "지정일": "2026-06-11"},
+        {"종목명": "팸텍", "지정일": "2026-06-09"},
+        {"종목명": "기가비스", "지정일": "2026-06-08"},
+        {"종목명": "크레오에스지", "지정일": "2026-06-08"},
+        {"종목명": "광진실업", "지정일": "2026-06-01"},
+        {"종목명": "나무기술", "지정일": "2026-06-01"},
+        {"종목명": "디앤디파마텍", "지정일": "2026-05-29"},
+        {"종목명": "삼화콘덴서", "지정일": "2026-05-29"},
+        {"종목명": "셀레믹스", "지정일": "2026-05-29"},
+        {"종목명": "네이처셀", "지정일": "2026-05-28"},
+        {"종목명": "대원전선우", "지정일": "2026-05-28"},
+        {"종목명": "바이젠셀", "지정일": "2026-05-28"},
+        {"종목명": "아모텍", "지정일": "2026-05-28"},
+        {"종목명": "네패스아크", "지정일": "2026-05-27"},
+        {"종목명": "드림시큐리티", "지정일": "2026-05-27"},
+        {"종목명": "피엠티", "지정일": "2026-05-27"},
+        {"종목명": "한국첨단소재", "지정일": "2026-05-27"},
+        {"종목명": "KBI메탈", "지정일": "2026-05-26"},
+        {"종목명": "미래산업", "지정일": "2026-05-26"},
+        {"종목명": "심텍", "지정일": "2026-05-26"},
+        {"종목명": "티에스이", "지정일": "2026-05-26"},
+        {"종목명": "광전자", "지정일": "2026-05-22"},
+        {"종목명": "엠케이전자", "지정일": "2026-05-22"},
+        {"종목명": "타이거일렉", "지정일": "2026-05-22"},
+        {"종목명": "티웨이홀딩스", "지정일": "2026-05-22"},
+        {"종목명": "하나마이크론", "지정일": "2026-05-22"},
+        {"종목명": "썬테크", "지정일": "2026-05-21"},
+        {"종목명": "아이로보틱스", "지정일": "2026-05-20"},
+        {"종목명": "진원생명과학", "지정일": "2026-05-20"},
+        {"종목명": "한선엔지니어링", "지정일": "2026-05-20"},
+        {"종목명": "소룩스", "지정일": "2026-05-19"},
+        {"종목명": "에스에이엠티", "지정일": "2026-05-19"},
+        {"종목명": "오션스바이오", "지정일": "2026-05-19"},
+        {"종목명": "메디젠휴먼케어", "지정일": "2026-05-18"},
+        {"종목명": "사토시홀딩스", "지정일": "2026-05-18"},
+        {"종목명": "삼성전기우", "지정일": "2026-05-18"},
+        {"종목명": "TPC로보틱스", "지정일": "2026-05-15"},
+        {"종목명": "네오티스", "지정일": "2026-05-15"},
+        {"종목명": "미래반도체", "지정일": "2026-05-15"},
+        {"종목명": "민테크", "지정일": "2026-05-15"},
+        {"종목명": "성문전자", "지정일": "2026-05-15"},
+        {"종목명": "코스텍시스템", "지정일": "2026-05-15"},
+        {"종목명": "디케이티", "지정일": "2026-05-14"},
+        {"종목명": "에스비비테크", "지정일": "2026-05-14"},
+        {"종목명": "제주반도체", "지정일": "2026-05-14"},
+        {"종목명": "코리아써키트", "지정일": "2026-05-14"},
+        {"종목명": "피델릭스", "지정일": "2026-05-14"},
+        {"종목명": "한솔테크닉스", "지정일": "2026-05-14"},
+        {"종목명": "한울반도체", "지정일": "2026-05-14"},
+        {"종목명": "계양전기우", "지정일": "2026-05-13"},
+        {"종목명": "대한광통신", "지정일": "2026-05-13"},
+        {"종목명": "HB테크놀러지", "지정일": "2026-05-12"},
+        {"종목명": "다원넥스뷰", "지정일": "2026-05-12"},
+        {"종목명": "아스플로", "지정일": "2026-05-12"},
+        {"종목명": "에이팩트", "지정일": "2026-05-12"},
+        {"종목명": "유진테크", "지정일": "2026-05-12"},
+        {"종목명": "아진엑스텍", "지정일": "2026-05-11"},
+        {"종목명": "와이제이링크", "지정일": "2026-05-11"},
+        {"종목명": "한국피아이엠", "지정일": "2026-05-11"},
+        {"종목명": "해성옵틱스", "지정일": "2026-05-11"},
+        {"종목명": "드림시큐리티", "지정일": "2026-05-08"},
+        {"종목명": "루멘스", "지정일": "2026-05-08"},
+        {"종목명": "브이엠", "지정일": "2026-05-08"},
+        {"종목명": "LS에코에너지", "지정일": "2026-05-07"},
+        {"종목명": "네패스", "지정일": "2026-05-07"},
+        {"종목명": "에이프로", "지정일": "2026-05-07"},
+        {"종목명": "엘티씨", "지정일": "2026-05-07"},
+        {"종목명": "오르비텍", "지정일": "2026-05-07"},
+        {"종목명": "한빛레이저", "지정일": "2026-05-07"},
+        {"종목명": "KBI메탈", "지정일": "2026-05-06"},
+        {"종목명": "오름테라퓨틱", "지정일": "2026-05-06"},
+        {"종목명": "대원전선", "지정일": "2026-05-04"},
+        {"종목명": "라이콤", "지정일": "2026-05-04"},
+        {"종목명": "서울바이오시스", "지정일": "2026-05-04"},
+        {"종목명": "우리로", "지정일": "2026-05-04"},
+        {"종목명": "CSA 코스믹", "지정일": "2026-04-30"},
+        {"종목명": "THE E&M", "nday": "2026-04-30"},
+        {"종목명": "광전자", "지정일": "2026-04-30"},
+        {"종목명": "대원전선우", "지정일": "2026-04-30"},
+        {"종목명": "빛과전자", "지정일": "2026-04-30"},
+        {"종목명": "오가닉티코스메틱", "지정일": "2026-04-30"},
+        {"종목명": "이오테크닉스", "지정일": "2026-04-30"},
+        {"종목명": "코세스", "지정일": "2026-04-30"},
+        {"종목명": "대우건설", "지정일": "2026-04-29"},
+        {"종목명": "앤로보틱스", "지정일": "2026-04-29"},
+        {"종목명": "이노인스트루먼트", "지정일": "2026-04-29"},
+        {"종목명": "조이웍스앤코", "지정일": "2026-04-29"},
+        {"종목명": "피엠티", "지정일": "2026-04-29"},
+        {"종목명": "가온전선", "지정일": "2026-04-28"},
+        {"종목명": "케어젠", "지정일": "2026-04-28"},
+        {"종목명": "파이온엑스", "지정일": "2026-04-28"},
+        {"종목명": "기가레인", "지정일": "2026-04-27"},
+        {"종목명": "대덕전자", "지정일": "2026-04-27"},
+        {"종목명": "바이젠셀", "지정일": "2026-04-27"},
+        {"종목명": "코스텍시스", "지정일": "2026-04-27"},
+        {"종목명": "핑거", "지정일": "2026-04-27"},
+        {"종목명": "두산테스나", "지정일": "2026-04-24"},
+        {"종목명": "미래에셋벤처투자", "지정일": "2026-04-24"},
+        {"종목명": "한국첨단소재", "지정일": "2026-04-24"},
+        {"종목명": "삼아알미늄", "지정일": "2026-04-23"},
+        {"종목명": "저스템", "지정일": "2026-04-23"},
+        {"종목명": "주성엔지니어링", "지정일": "2026-04-23"},
+        {"종목명": "테스", "지정일": "2026-04-23"},
+        {"종목명": "퍼스텍", "지정일": "2026-04-23"},
+        {"종목명": "비츠로셀", "지정일": "2026-04-22"},
+        {"종목명": "아하정보통신", "지정일": "2026-04-22"},
+        {"종목명": "원익IPS", "지정일": "2026-04-22"},
+        {"종목명": "진원생명과학", "지정일": "2026-04-22"},
+        {"종목명": "(주)한싹", "지정일": "2026-04-21"},
+        {"종목명": "SGA솔루션즈", "지정일": "2026-04-21"},
+        {"종목명": "동운아나텍", "지정일": "2026-04-21"},
+        {"종목명": "썬테크", "지정일": "2026-04-21"},
+        {"종목명": "에이치엠넥스", "지정일": "2026-04-21"},
+        {"종목명": "케이씨에스", "지정일": "2026-04-21"},
+        {"종목명": "아이씨티케이", "지정일": "2026-04-20"},
+        {"종목명": "오킨스전자", "지정일": "2026-04-20"},
+        {"종목명": "파인텍", "지정일": "2026-04-20"},
+        {"종목명": "현대무벡스", "지정일": "2026-04-20"},
+        {"종목명": "드림시큐리티", "지정일": "2026-04-17"},
+        {"종목명": "루멘스", "지정일": "2026-04-17"},
+        {"종목명": "엑스게이트", "지정일": "2026-04-17"},
+        {"종목명": "티엘비", "지정일": "2026-04-17"},
+        {"종목명": "피에스케이", "지정일": "2026-04-17"},
+        {"종목명": "레이", "지정일": "2026-04-16"},
+        {"종목명": "알엔티엑스", "지정일": "2026-04-16"},
+        {"종목명": "웨이브일렉트로", "지정일": "2026-04-16"},
+        {"종목명": "주성코퍼레이션", "지정일": "2026-04-16"},
+        {"종목명": "카티스", "지정일": "2026-04-16"},
+        {"종목명": "파두", "지정일": "2026-04-16"},
+        {"종목명": "남선알미늄", "지정일": "2026-04-15"},
+        {"종목명": "빛샘전자", "지정일": "2026-04-15"},
+        {"종목명": "서울전자통신", "지정일": "2026-04-15"},
+        {"종목명": "에프알텍", "지정일": "2026-04-15"},
+        {"종목명": "우리넷", "지정일": "2026-04-15"},
+        {"종목명": "코위버", "지정일": "2026-04-15"},
+        {"종목명": "기산텔레콤", "지정일": "2026-04-14"},
+        {"종목명": "네이블", "지정일": "2026-04-14"},
+        {"종목명": "대동금속", "지정일": "2026-04-14"},
+        {"종목명": "라이콤", "지정일": "2026-04-14"},
+        {"종목명": "머큐리", "지정일": "2026-04-14"},
+        {"종목명": "모아데이타", "지정일": "2026-04-14"},
+        {"종목명": "와이어블", "지정일": "2026-04-14"},
+        {"종목명": "이엠티", "지정일": "2026-04-14"},
+        {"종목명": "피플바이오", "지정일": "2026-04-14"},
+        {"종목명": "대한광통신", "지정일": "2026-04-13"},
+        {"종목명": "앤씨앤", "지정일": "2026-04-13"},
+        {"종목명": "태영건설우", "지정일": "2026-04-13"},
+        {"종목명": "피노", "지정일": "2026-04-13"},
+        {"종목명": "이루온", "지정일": "2026-04-10"},
+        {"종목명": "인스코비", "지정일": "2026-04-09"},
+        {"종목명": "CS", "지정일": "2026-04-08"},
+        {"종목명": "가이아코퍼레이션", "지정일": "2026-04-08"},
+        {"종목명": "누리플렉스", "지정일": "2026-04-08"},
+        {"종목명": "광전자", "지정일": "2026-04-07"},
+        {"종목명": "오이솔루션", "지정일": "2026-04-07"},
+        {"종목명": "계양전기우", "지정일": "2026-04-06"},
+        {"종목명": "애경케미칼", "지정일": "2026-04-03"},
+        {"종목명": "흥아해운", "지정일": "2026-04-03"},
+        {"종목명": "셀레믹스", "지정일": "2026-04-01"},
+        {"종목명": "케이엠제약", "지정일": "2026-03-31"},
+        {"종목명": "기가레인", "지정일": "2026-03-30"},
+        {"종목명": "대성하이텍", "지정일": "2026-03-30"},
+        {"종목명": "부광약품", "지정일": "2026-03-30"},
+        {"종목명": "우리넷", "지정일": "2026-03-30"},
+        {"종목명": "옵투스제약", "지정일": "2026-03-27"},
+        {"종목명": "이노인스트루먼트", "지정일": "2026-03-27"},
+        {"종목명": "페니트리움바이오", "지정일": "2026-03-27"},
+        {"종목명": "한국첨단소재", "지정일": "2026-03-27"},
+        {"종목명": "에이치브이엠", "지정일": "2026-03-26"},
+        {"종목명": "SK증권우", "지정일": "2026-03-25"},
+        {"종목명": "아리바이오랩", "지정일": "2026-03-25"},
+        {"종목명": "빛과전자", "지정일": "2026-03-24"},
+        {"종목명": "오늘이엔엠", "지정일": "2026-03-24"},
+        {"종목명": "우리로", "지정일": "2026-03-24"},
+        {"종목명": "RF머트리얼즈", "지정일": "2026-03-23"},
+        {"종목명": "로킷헬스케어", "지정일": "2026-03-23"},
+        {"종목명": "오르비텍", "지정일": "2026-03-23"},
+        {"종목명": "레이저쎌", "지정일": "2026-03-19"},
+        {"종목명": "미래아이앤지", "지정일": "2026-03-19"},
+        {"종목명": "서울전자통신", "지정일": "2026-03-19"},
+        {"종목명": "알엔티엑스", "지정일": "2026-03-19"},
+        {"종목명": "폴라리스AI", "지정일": "2026-03-19"},
+        {"종목명": "나무기술", "지정일": "2026-03-18"},
+        {"종목명": "이엠티", "지정일": "2026-03-18"},
+        {"종목명": "지니너스", "지정일": "2026-03-18"},
+        {"종목명": "한선엔지니어링", "지정일": "2026-03-18"},
+        {"종목명": "SKAI", "지정일": "2026-03-17"},
+        {"종목명": "THE E&M", "지정일": "2026-03-17"},
+        {"종목명": "라이콤", "지정일": "2026-03-17"},
+        {"종목명": "무진메디", "지정일": "2026-03-17"},
+        {"종목명": "센서뷰", "지정일": "2026-03-17"},
+        {"종목명": "지구홀딩스", "지정일": "2026-03-17"},
+        {"종목명": "비나텍", "지정일": "2026-03-16"},
+        {"종목명": "성호전자", "지정일": "2026-03-16"},
+        {"종목명": "에치에프알", "지정일": "2026-03-16"},
+        {"종목명": "오이솔루션", "지정일": "2026-03-16"}
+    ]
+    return pd.DataFrame(raw_data)
+
+df_krx_master = get_krx_stock_codes()
+df_my_list = load_my_announcements()
+
+# 이름 기준으로 종목코드 자동 결합
+df_final_list = pd.merge(df_my_list, df_krx_master, on='종목명', how='inner')
+
+# 사이드바 종목 선택 콤보박스
+st.sidebar.header("🔍 종목 선택")
+selected_stock = st.sidebar.selectbox(
+    "원하는 종목을 골라보세요:",
+    options=df_final_list["종목명"].unique()
+)
+
+# 선택 종목 매핑 정보 추출
+stock_info = df_final_list[df_final_list["종목명"] == selected_stock].iloc[0]
+stock_code = stock_info["코드"]
+d_day_str = stock_info["지정일"]
+d_day_dt = datetime.strptime(d_day_str, "%Y-%m-%d")
+
+st.title(f"📈 {selected_stock} ({stock_code}) 주가 흐름")
+st.markdown(f"**투자경고 지정일(D-day):** `{d_day_str}` (순수 영업일 기준)")
+
+# 영업일수 마진 확보를 위해 전후 날짜 여유있게 지정
+start_date = d_day_dt - timedelta(days=25)
+end_date = d_day_dt + timedelta(days=45)
+
+@st.cache_data
+def fetch_prices(code, start, end):
     try:
-        # pd.read_html(url)을 쓰면 헤더가 없어 차단되므로 requests를 사용
-        response = requests.get(url, headers=HEADERS)
-        response.raise_for_status()
-        
-        # CP949 인코딩 처리하여 한글 깨짐 방지
-        df = pd.read_html(io.StringIO(response.content.decode('cp949')))[0]
-        df['종목코드'] = df['종목코드'].astype(str).str.zfill(6)
-        return df[['회사명', '종목코드']]
-    except Exception as e:
-        st.error(f"KRX 종목 마스터 데이터를 가져오는 중 오류가 발생했습니다: {e}")
+        return fdr.DataReader(code, start, end)
+    except:
         return pd.DataFrame()
 
-# 데이터 로드
-warn_df = fetch_warn_stocks()
-ticker_master = get_krx_tickers()
+df_price = fetch_prices(stock_code, start_date, end_date)
 
-if not warn_df.empty and not ticker_master.empty:
-    # 종목명 기준으로 종목코드 합치기
-    warn_df = pd.merge(warn_df, ticker_master, left_on='종목명', right_on='회사명', how='left')
-    warn_df = warn_df.dropna(subset=['종목코드']).reset_index(drop=True)
+if not df_price.empty:
+    df_price = df_price.reset_index()
+    df_price['Date_dt'] = pd.to_datetime(df_price['Date'])
     
-    if not warn_df.empty:
-        st.subheader("📌 2026년 4월 이후 투자경고 지정 종목 리스트")
-        st.caption("분석하고 싶은 종목을 선택하세요.")
+    # 실제 데이터셋 중 지정일과 가장 근접한 거래일 찾기
+    closest_idx = (df_price['Date_dt'] - d_day_dt).abs().idxmin()
+    
+    # 캘린더 날짜가 아닌 '행 인덱스 순서'로 순수 영업일 D-day 연산
+    df_price['D_day'] = df_price.index - closest_idx
+    
+    # 보고자 하는 D-5 ~ D+20 범위 필터링
+    df_filtered = df_price[(df_price['D_day'] >= -5) & (df_price['D_day'] <= 20)].copy()
+    
+    if not df_filtered.empty:
+        # D-day 당일 종가 기준으로 상대 수익률 계산
+        d_day_close = df_price.loc[closest_idx, 'Close']
+        df_filtered['수익률(%)'] = ((df_filtered['Close'] - d_day_close) / d_day_close) * 100
         
-        selected_idx = st.selectbox(
-            "조회할 종목을 선택하세요:",
-            range(len(warn_df)),
-            format_func=lambda x: f"[{warn_df.loc[x, '지정일']}] {warn_df.loc[x, '종목명']} ({warn_df.loc[x, '종목코드']})"
+        view_mode = st.radio("표시 기준:", ["지정일 대비 수익률 변동 (%)", "실제 종가 기준 (원)"], horizontal=True)
+        y_axis_col = '수익률(%)' if view_mode == "지정일 대비 수익률 변동 (%)" else 'Close'
+        
+        # 차트 그리기
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_filtered['D_day'],
+            y=df_filtered[y_axis_col],
+            mode='lines+markers',
+            line=dict(color='#0066cc', width=3),
+            marker=dict(size=7),
+            hovertemplate="<b>D%{x}</b><br>날짜: %{customdata}<br>값: %{y:,.2f}<extra></extra>",
+            customdata=df_filtered['Date'].dt.strftime('%Y-%m-%d')
+        ))
+        
+        # 기준선 추가
+        fig.add_vline(x=0, line_dash="dash", line_color="red", annotation_text="D-day")
+        if view_mode == "지정일 대비 수익률 변동 (%)":
+            fig.add_hline(y=0, line_dash="dot", line_color="grey")
+            
+        fig.update_layout(
+            xaxis=dict(title="영업일 (D-day)", tickmode='linear', dtick=1),
+            yaxis=dict(title=view_mode),
+            height=500
         )
         
-        selected_stock = warn_df.loc[selected_idx]
-        ticker = selected_stock['종목코드']
-        ticker_name = selected_stock['종목명']
-        warn_date_str = selected_stock['지정일'].replace('.', '-').strip()
-        warn_date = datetime.strptime(warn_date_str, '%Y-%m-%d')
+        st.plotly_chart(fig, use_container_width=True)
         
-        # 3. 주가 데이터 수집 및 시각화
-        df = pd.DataFrame()
-        for suffix in ['.KS', '.KQ']:
-            full_ticker = f"{ticker}{suffix}"
-            start_date = warn_date - timedelta(days=15)
-            end_date = warn_date + timedelta(days=30)
-            
-            tmp_df = yf.download(full_ticker, start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'), progress=False)
-            if not tmp_df.empty:
-                df = tmp_df
-                break
-                
-        if not df.empty:
-            df = df.reset_index()
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.droplevel(1)
-                
-            df['Date_str'] = df['Date'].dt.strftime('%Y-%m-%d')
-            exact_match = df[df['Date_str'] >= warn_date_str]
-            
-            if not exact_match.empty:
-                warn_idx = exact_match.index[0]
-                
-                start_idx = max(0, warn_idx - 5)
-                end_idx = min(len(df), warn_idx + 16)
-                analysis_df = df.iloc[start_idx:end_idx].copy()
-                
-                analysis_df['D-Day'] = [f"D{i-warn_idx:+d}" if i != warn_idx else "D-Day" for i in analysis_df.index]
-                
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.subheader(f"📈 {ticker_name} ({ticker}) 주가 흐름 (지정일: {warn_date_str})")
-                    fig = go.Figure(data=[go.Candlestick(
-                        x=analysis_df['D-Day'],
-                        open=analysis_df['Open'],
-                        high=analysis_df['High'],
-                        low=analysis_df['Low'],
-                        close=analysis_df['Close'],
-                        name="주가"
-                    )])
-                    
-                    fig.add_vline(x="D-Day", line_width=2, line_dash="dash", line_color="red")
-                    fig.update_layout(xaxis_title="지정일 기준", yaxis_title="주가 (원)", xaxis_rangeslider_visible=False, height=500)
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                with col2:
-                    st.subheader("📋 상세 데이터")
-                    st.dataframe(
-                        analysis_df[['Date_str', 'D-Day', 'Close']].rename(columns={'Date_str':'날짜', 'Close':'종가'}),
-                        height=450, hide_index=True
-                    )
-            else:
-                st.warning("경고 지정일 이후의 주가 데이터가 아직 존재하지 않습니다.")
-        else:
-            st.error("yfinance에서 주가 데이터를 불러오지 못했습니다.")
+        # 상세 데이터 표
+        with st.expander("📊 상세 데이터 표 보기"):
+            df_table = df_filtered[['D_day', 'Date', 'Close', 'Volume', '수익률(%)']].copy()
+            df_table['Date'] = df_table['Date'].dt.strftime('%Y-%m-%d')
+            df_table.columns = ['D-day', '실제 날짜', '종가(원)', '거래량', '지정일 대비 수익률(%)']
+            st.dataframe(df_table.reset_index(drop=True), use_container_width=True)
     else:
-        st.info("KIND에서 매핑된 매칭 종목이 없습니다.")
+        st.warning("계산 가능한 영업일 데이터가 없습니다.")
 else:
-    st.info("KIND 사이트에서 투자경고 종목 데이터를 가져오는 중이거나 데이터가 없습니다.")
+    st.error("주가 데이터를 가져오지 못했습니다.")
