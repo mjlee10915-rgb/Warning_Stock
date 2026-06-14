@@ -116,4 +116,35 @@ if not warn_df.empty and not ticker_master.empty:
                 end_idx = min(len(df), warn_idx + 16)
                 analysis_df = df.iloc[start_idx:end_idx].copy()
                 
-                analysis_df['D-Day'] =
+                analysis_df['D-Day'] = [f"D{i-warn_idx:+d}" if i != warn_idx else "D-Day" for i in analysis_df.index]
+                
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.subheader(f"📈 {ticker_name} ({ticker}) 주가 흐름 (지정일: {warn_date_str})")
+                    fig = go.Figure(data=[go.Candlestick(
+                        x=analysis_df['D-Day'],
+                        open=analysis_df['Open'],
+                        high=analysis_df['High'],
+                        low=analysis_df['Low'],
+                        close=analysis_df['Close'],
+                        name="주가"
+                    )])
+                    
+                    fig.add_vline(x="D-Day", line_width=2, line_dash="dash", line_color="red")
+                    fig.update_layout(xaxis_title="지정일 기준", yaxis_title="주가 (원)", xaxis_rangeslider_visible=False, height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                with col2:
+                    st.subheader("📋 상세 데이터")
+                    st.dataframe(
+                        analysis_df[['Date_str', 'D-Day', 'Close']].rename(columns={'Date_str':'날짜', 'Close':'종가'}),
+                        height=450, hide_index=True
+                    )
+            else:
+                st.warning("경고 지정일 이후의 주가 데이터가 아직 존재하지 않습니다.")
+        else:
+            st.error("yfinance에서 주가 데이터를 불러오지 못했습니다.")
+    else:
+        st.info("KIND에서 매핑된 매칭 종목이 없습니다.")
+else:
+    st.info("KIND 사이트에서 투자경고 종목 데이터를 가져오는 중이거나 데이터가 없습니다.")
