@@ -40,7 +40,7 @@ def fetch_warn_stocks():
         dfs = pd.read_html(io.StringIO(response.text))
         if dfs:
             df = dfs[0]
-            df.columns = [col.strip() for col in df.columns]
+            df.columns = [str(col).strip() for col in df.columns]
             df = df[['종목명', '지정일', '해제일(예정일)']]
             return df
     except Exception as e:
